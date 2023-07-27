@@ -127,7 +127,7 @@ spec:
     - http:
         paths:
           - pathType: Prefix
-            path: /
+            path: /pgadmin4
             backend:
               service:
                 name: pgadmin4

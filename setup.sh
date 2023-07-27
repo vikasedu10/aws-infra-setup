@@ -120,7 +120,7 @@ function clone_repositories() {
 function set_aws_credentials() {
     aws configure set aws_access_key_id $1
     aws configure set aws_secret_access_key $2
-    aws configure set default.REGION $3
+    aws configure set default.region $3
 }
 
 # Call all the functions to install and setup the required tools
@@ -164,6 +164,8 @@ execute "eksctl create cluster --name $CLUSTER_NAME --nodegroup-name $NODEGROUP_
 execute "aws eks update-kubeconfig --name $CLUSTER_NAME"
 execute "kubectl create namespace $NAMESPACE"
 execute "kubectl config set-context --current --namespace=$NAMESPACE"
+execute "kubectl config view --minify | grep namespace:"
+
 
 # Create sample UI & API repos in AWS ECR
 execute "aws ecr create-repository --repository-name $UI_REPO --region $REGION"
