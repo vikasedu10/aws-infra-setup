@@ -4,8 +4,8 @@ set -e # exit on error
 if [ -z "$AWS_ACCESS_KEY_ENV" ] || [ -z "$AWS_SECRET_KEY_ENV" ]
 then
   echo
-  echo "AWS Access Key or Secret Key ENV not set." 
-  echo "Set env using \nexport AWS_ACCESS_KEY_ENV=''\nexport AWS_SECRET_KEY_ENV=''"
+  echo -e "AWS Access Key or Secret Key ENV not set." 
+  echo -e "Set env using \nexport AWS_ACCESS_KEY_ENV=''\nexport AWS_SECRET_KEY_ENV=''"
   echo
   exit 1
 fi
@@ -18,11 +18,11 @@ REGION=us-east-1
 # Variables for AWS EKS Cluster Setup
 API_REPO_NAME=https://github.com/vikasedu10/k8s-demo-api.git
 UI_REPO_NAME=https://github.com/vikasedu10/k8s-demo-ui.git
-CLUSTER_NAME=eks-demoapp1
-NODEGROUP_NAME=node-group-demoapp1
+CLUSTER_NAME=eks-demoapp
+NODEGROUP_NAME=node-group-demoapp
 API_REPO=testapi
 UI_REPO=testui
-FOLDER_PATH=.
+FOLDER_PATH=../
 NODE_TYPE=t3.medium
 
 # Variables for AWS EBS CSI Setup
@@ -110,9 +110,11 @@ function configure_ssh() {
 }
 
 function clone_repositories() {
+    API_REPO_NAME=$(basename -s .git "$1")
+    UI_REPO_NAME=$(basename -s .git "$2")
     echo "Cloning sample UI & API repository"
-    git clone $1
-    git clone $2
+    git clone $1 ../$API_REPO_NAME
+    git clone $2 ../$UI_REPO_NAME
 }
 
 function set_aws_credentials() {
@@ -170,6 +172,7 @@ execute "docker build -t $ACN.dkr.ecr.$REGION.amazonaws.com/$UI_REPO:v1 -f $FOLD
 execute "docker build -t $ACN.dkr.ecr.$REGION.amazonaws.com/$API_REPO:v1 -f $FOLDER_PATH/k8s-demo-api/Dockerfile $FOLDER_PATH/k8s-demo-api/. && docker push $ACN.dkr.ecr.$REGION.amazonaws.com/$API_REPO:v1"
 
 # Deploy API, UI, Ingress resources
+execute "kubectl create namespace eternal"
 execute "kubectl apply -f $FOLDER_PATH/k8s-demo-ui/ui.yaml"
 execute "kubectl apply -f $FOLDER_PATH/k8s-demo-api/api.yaml"
 
@@ -180,8 +183,8 @@ execute "helm pull ingress-nginx/ingress-nginx"
 execute "helm install my-ingress ingress-nginx/ingress-nginx --namespace default"
 
 # Apply tools
-execute "kubectl apply -f $FOLDER_PATH/pgadmin4.yaml"
-execute "kubectl apply -f $FOLDER_PATH/postgres.yaml"
+execute "kubectl apply -f $FOLDER_PATH/infra/pgadmin4.yaml"
+execute "kubectl apply -f $FOLDER_PATH/infra/postgres.yaml"
 
 # Update deployments
 execute "kubectl set image deployment/$UI_REPO $UI_REPO=$ACN.dkr.ecr.$REGION.amazonaws.com/$UI_REPO:v1"
