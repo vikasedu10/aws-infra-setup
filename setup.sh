@@ -1,11 +1,11 @@
 #!/bin/bash
 set -e # exit on error
 
-if [ -z "$AWS_ACCESS_KEY_ENV" ] || [ -z "$AWS_SECRET_KEY_ENV" ]
+if [ -z "$AWS_ACCESS_KEY_ENV" ] || [ -z "$AWS_SECRET_KEY_ENV" ] || [ -z "$PAT_TOKEN_ENV" ]
 then
   echo
   echo -e "AWS Access Key or Secret Key ENV not set." 
-  echo -e "Set env using \nexport AWS_ACCESS_KEY_ENV=''\nexport AWS_SECRET_KEY_ENV=''"
+  echo -e "Set env using \nexport AWS_ACCESS_KEY_ENV=''\nexport AWS_SECRET_KEY_ENV=''\nexport PAT_TOKEN_ENV=''"
   echo
   exit 1
 fi
@@ -13,17 +13,23 @@ fi
 echo "Creating variables.."
 AWS_ACCESS_KEY=$AWS_ACCESS_KEY_ENV
 AWS_SECRET_KEY=$AWS_SECRET_KEY_ENV
+PAT_TOKEN=$PAT_TOKEN_ENV
 REGION=us-east-1
 
 # Variables for AWS EKS Cluster Setup
-API_REPO_NAME=https://github.com/vikasedu10/k8s-demo-api.git
-UI_REPO_NAME=https://github.com/vikasedu10/k8s-demo-ui.git
+API_REPO_NAME="https://$PAT_TOKEN@github.com/vikasedu10/k8s-demo-api.git"
+UI_REPO_NAME="https://$PAT_TOKEN@github.com/vikasedu10/k8s-demo-ui.git"
 CLUSTER_NAME=eks-demoapp
 NODEGROUP_NAME=node-group-demoapp
 API_REPO=testapi
 UI_REPO=testui
 FOLDER_PATH=../
+NAMESPACE=eternal
+
 NODE_TYPE=t3.medium
+NODES=2
+NODES_MAX=4
+NODES_MIN=2
 
 # Variables for AWS EBS CSI Setup
 EBS_CSI_DRIVER="aws-ebs-csi-driver"
@@ -113,8 +119,8 @@ function clone_repositories() {
     API_REPO_NAME=$(basename -s .git "$1")
     UI_REPO_NAME=$(basename -s .git "$2")
     echo "Cloning sample UI & API repository"
-    git clone $1 ../$API_REPO_NAME
-    git clone $2 ../$UI_REPO_NAME
+     git clone $1 ../$API_REPO_NAME
+     git clone $2 ../$UI_REPO_NAME
 }
 
 function set_aws_credentials() {
@@ -159,7 +165,7 @@ function execute() {
 }
 
 # Create cluster with EKSCTL CLI
-execute "eksctl create cluster --name $CLUSTER_NAME --nodegroup-name $NODEGROUP_NAME --nodes 2 --node-type $NODE_TYPE --nodes-max 4 --nodes-min 2 --region $REGION"
+execute "eksctl create cluster --name $CLUSTER_NAME --nodegroup-name $NODEGROUP_NAME --nodes $NODES --node-type $NODE_TYPE --nodes-max $NODES_MAX --nodes-min $NODES_MIN --region $REGION"
 execute "aws eks update-kubeconfig --name $CLUSTER_NAME"
 
 # Create sample UI & API repos in AWS ECR
@@ -171,8 +177,13 @@ execute "aws ecr get-login-password --region $REGION | docker login --username A
 execute "docker build -t $ACN.dkr.ecr.$REGION.amazonaws.com/$UI_REPO:v1 -f $FOLDER_PATH/k8s-demo-ui/Dockerfile $FOLDER_PATH/k8s-demo-ui/. && docker push $ACN.dkr.ecr.$REGION.amazonaws.com/$UI_REPO:v1"
 execute "docker build -t $ACN.dkr.ecr.$REGION.amazonaws.com/$API_REPO:v1 -f $FOLDER_PATH/k8s-demo-api/Dockerfile $FOLDER_PATH/k8s-demo-api/. && docker push $ACN.dkr.ecr.$REGION.amazonaws.com/$API_REPO:v1"
 
+# Setup namespace
+echo "Setup $NAMESPACE namespace"
+execute "kubectl create namespace $NAMESPACE"
+execute "kubectl config set-context --current --namespace=$NAMESPACE"
+execute "kubectl config view --minify | grep namespace:"
+
 # Deploy API, UI, Ingress resources
-execute "kubectl create namespace eternal"
 execute "kubectl apply -f $FOLDER_PATH/k8s-demo-ui/ui.yaml"
 execute "kubectl apply -f $FOLDER_PATH/k8s-demo-api/api.yaml"
 
@@ -180,7 +191,7 @@ execute "kubectl apply -f $FOLDER_PATH/k8s-demo-api/api.yaml"
 execute "helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx"
 execute "helm repo update"
 execute "helm pull ingress-nginx/ingress-nginx"
-execute "helm install my-ingress ingress-nginx/ingress-nginx --namespace default"
+execute "helm install ingress-nginx ingress-nginx/ingress-nginx --namespace $NAMESPACE"
 
 # Apply tools
 execute "kubectl apply -f $FOLDER_PATH/infra/pgadmin4.yaml"
@@ -192,41 +203,40 @@ execute "kubectl set image deployment/$API_REPO $API_REPO=$ACN.dkr.ecr.$REGION.a
 
 
 echo "Configuring AWS EBS CSI driver..."
-
 oidc_id=$(aws eks describe-cluster --name $CLUSTER_NAME --query "cluster.identity.oidc.issuer" --output text | cut -d '/' -f 5)
 
 if ! aws iam list-open-id-connect-providers | grep -q $oidc_id; then
-  eksctl utils associate-iam-oidc-provider --cluster $CLUSTER_NAME --approve
+  execute "eksctl utils associate-iam-oidc-provider --cluster $CLUSTER_NAME --approve"
 fi
 
-eksctl create iamserviceaccount \
+execute "eksctl create iamserviceaccount \
     --name ebs-csi-controller-sa \
     --namespace kube-system \
     --cluster $CLUSTER_NAME \
     --role-name AmazonEKS_EBS_CSI_DriverRole \
     --role-only \
     --attach-policy-arn arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy \
-    --approve
+    --approve"
 
-aws eks describe-addon-versions --addon-name aws-ebs-csi-driver
+execute "aws eks describe-addon-versions --addon-name aws-ebs-csi-driver"
 
-echo "AWS EBS CSI driver add-on configured"
+execute "echo 'AWS EBS CSI driver add-on configured'"
 
-echo "Installing AWS EBS CSI driver as self-hosted using Helm"
+execute "echo "Installing AWS EBS CSI driver as self-hosted using Helm""
 
-kubectl create secret generic aws-secret \
+execute "kubectl create secret generic aws-secret \
     --namespace kube-system \
-    --from-literal "key_id=${AWS_ACCESS_KEY}" \
-    --from-literal "access_key=${AWS_SECRET_KEY}"
+    --from-literal 'key_id=${AWS_ACCESS_KEY}' \
+    --from-literal 'access_key=${AWS_SECRET_KEY}'"
 
-helm repo add aws-ebs-csi-driver https://kubernetes-sigs.github.io/aws-ebs-csi-driver
-helm repo update
+execute "helm repo add aws-ebs-csi-driver https://kubernetes-sigs.github.io/aws-ebs-csi-driver"
+execute "helm repo update"
 
-echo "Upgrading to latest version of driver"
-helm upgrade --install $EBS_CSI_DRIVER \
+execute "echo "Upgrading to latest version of driver""
+execute "helm upgrade --install $EBS_CSI_DRIVER \
     --namespace kube-system \
-    aws-ebs-csi-driver/$EBS_CSI_DRIVER
+    aws-ebs-csi-driver/$EBS_CSI_DRIVER"
 
-kubectl get pods -n kube-system -l app.kubernetes.io/name=$EBS_CSI_DRIVER
+execute "kubectl get pods -n kube-system -l app.kubernetes.io/name=$EBS_CSI_DRIVER"
 
 echo "Driver installation completed successfully"
