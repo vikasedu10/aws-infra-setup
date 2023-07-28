@@ -168,10 +168,6 @@ function execute() {
 # Create cluster with EKSCTL CLI
 execute "eksctl create cluster --name $CLUSTER_NAME --nodegroup-name $NODEGROUP_NAME --nodes $NODES --node-type $NODE_TYPE --nodes-max $NODES_MAX --nodes-min $NODES_MIN --region $REGION"
 execute "aws eks update-kubeconfig --name $CLUSTER_NAME"
-execute "kubectl create namespace $NAMESPACE"
-execute "kubectl config set-context --current --namespace=$NAMESPACE"
-execute "kubectl config view --minify | grep namespace:"
-
 
 # Create sample UI & API repos in AWS ECR
 execute "aws ecr create-repository --repository-name $UI_REPO --region $REGION"
