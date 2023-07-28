@@ -126,7 +126,7 @@ function clone_repositories() {
 function set_aws_credentials() {
     aws configure set aws_access_key_id $1
     aws configure set aws_secret_access_key $2
-    aws configure set default.REGION $3
+    aws configure set default.region $3
 }
 
 # Call all the functions to install and setup the required tools
@@ -142,6 +142,7 @@ set_aws_credentials $AWS_ACCESS_KEY $AWS_SECRET_KEY $REGION
 
 # Setting dependent variables
 ACN=$(aws sts get-caller-identity --query 'Account' --output text)
+NAMESPACE=eternal
 
 # Setup EKS Cluster 
 function log() {
@@ -167,6 +168,10 @@ function execute() {
 # Create cluster with EKSCTL CLI
 execute "eksctl create cluster --name $CLUSTER_NAME --nodegroup-name $NODEGROUP_NAME --nodes $NODES --node-type $NODE_TYPE --nodes-max $NODES_MAX --nodes-min $NODES_MIN --region $REGION"
 execute "aws eks update-kubeconfig --name $CLUSTER_NAME"
+execute "kubectl create namespace $NAMESPACE"
+execute "kubectl config set-context --current --namespace=$NAMESPACE"
+execute "kubectl config view --minify | grep namespace:"
+
 
 # Create sample UI & API repos in AWS ECR
 execute "aws ecr create-repository --repository-name $UI_REPO --region $REGION"
@@ -192,14 +197,15 @@ execute "helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx"
 execute "helm repo update"
 execute "helm pull ingress-nginx/ingress-nginx"
 execute "helm install ingress-nginx ingress-nginx/ingress-nginx --namespace $NAMESPACE"
+execute "rm -rf ingress-nginx-*.tgz"
 
 # Apply tools
-execute "kubectl apply -f $FOLDER_PATH/infra/pgadmin4.yaml"
-execute "kubectl apply -f $FOLDER_PATH/infra/postgres.yaml"
+execute "kubectl apply -f $FOLDER_PATH/infra/pgadmin4.yaml --namespace $NAMESPACE"
+execute "kubectl apply -f $FOLDER_PATH/infra/postgres.yaml --namespace $NAMESPACE"
 
 # Update deployments
-execute "kubectl set image deployment/$UI_REPO $UI_REPO=$ACN.dkr.ecr.$REGION.amazonaws.com/$UI_REPO:v1"
-execute "kubectl set image deployment/$API_REPO $API_REPO=$ACN.dkr.ecr.$REGION.amazonaws.com/$API_REPO:v1"
+execute "kubectl set image deployment/$UI_REPO $UI_REPO=$ACN.dkr.ecr.$REGION.amazonaws.com/$UI_REPO:v1 --namespace $NAMESPACE"
+execute "kubectl set image deployment/$API_REPO $API_REPO=$ACN.dkr.ecr.$REGION.amazonaws.com/$API_REPO:v1 --namespace $NAMESPACE"
 
 
 echo "Configuring AWS EBS CSI driver..."
