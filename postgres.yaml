@@ -24,7 +24,7 @@ spec:
   capacity:
     storage: 5Gi
   accessModes:
-    - ReadWriteMany
+    - ReadWriteOnce
   hostPath:
     path: "/mnt/data"
 
@@ -39,7 +39,7 @@ metadata:
 spec:
   storageClassName: manual
   accessModes:
-    - ReadWriteMany
+    - ReadWriteOnce
   resources:
     requests:
       storage: 5Gi
@@ -74,11 +74,11 @@ spec:
               name: postgredb
           resources:
             requests:
+              cpu: "50m"
+              memory: "50Mi"
+            limits:
               cpu: "100m"
               memory: "100Mi"
-            limits:
-              cpu: "200m"
-              memory: "200Mi"
       volumes:
         - name: postgredb
           persistentVolumeClaim:
